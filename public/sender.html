@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>sender · tesla-monitor</title>
+<style>
+  body{font-family:ui-sans-serif,system-ui;margin:1.5rem;max-width:50rem;line-height:1.4}
+  video{width:100%;background:#111;border-radius:8px;margin-top:1rem}
+  button{font-size:1rem;padding:.6rem 1rem;margin-right:.5rem}
+  #log{white-space:pre-wrap;background:#f4f4f4;padding:.75rem;border-radius:6px;font:12px ui-monospace;height:10rem;overflow:auto}
+</style>
+<h1>Sender (Mac)</h1>
+<p>Pick the BetterDisplay virtual screen when the OS picker appears.</p>
+<button id="start">Start sharing</button>
+<button id="stop" disabled>Stop</button>
+<video id="preview" autoplay muted playsinline></video>
+<div id="log"></div>
+<script type="module" src="/sender.js"></script>

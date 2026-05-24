@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Tesla Monitor</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#ccc;font-family:ui-sans-serif,system-ui;overflow:hidden;-webkit-user-select:none;user-select:none}
+  #v{width:100vw;height:100vh;object-fit:contain;background:#000;display:block}
+  #ui{position:fixed;top:8px;left:8px;display:flex;gap:.5rem;align-items:center;z-index:10;transition:opacity .4s}
+  button{font-size:1rem;padding:.55rem .9rem;border-radius:8px;border:0;background:#222c;color:#eee;backdrop-filter:blur(8px)}
+  #status{font:12px ui-monospace;opacity:.7;background:#000a;padding:.3rem .5rem;border-radius:4px}
+  #stats{position:fixed;bottom:6px;right:8px;font:11px ui-monospace;color:#0f0a;background:#000a;padding:.2rem .4rem;border-radius:4px;z-index:10}
+  body.connected #ui{opacity:0;pointer-events:none}
+  body.connected:hover #ui,body.connected.touched #ui{opacity:1;pointer-events:auto}
+</style>
+<div id="ui">
+  <button id="fs">Fullscreen</button>
+  <button id="reconnect">Reconnect</button>
+  <span id="status">connecting…</span>
+</div>
+<div id="stats"></div>
+<video id="v" autoplay playsinline muted></video>
+<script type="module" src="/receiver.js"></script>
