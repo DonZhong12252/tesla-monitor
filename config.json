@@ -1,0 +1,16 @@
+{
+  "pin": "",
+  "hostname": "tesla-monitor",
+  "port": 8080,
+  "display": {
+    "_comment": "Where the BetterDisplay virtual screen sits in macOS global coordinate space. Run `npm run detect-displays` to find values. offsetX/Y is the top-left of the virtual display; width/height is its resolution.",
+    "offsetX": 0,
+    "offsetY": 0,
+    "width": 1600,
+    "height": 1000
+  },
+  "touch": {
+    "enabled": true,
+    "moveThrottleHz": 60
+  }
+}

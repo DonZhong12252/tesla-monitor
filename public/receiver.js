@@ -1,11 +1,40 @@
 const v = document.getElementById('v');
 const statusEl = document.getElementById('status');
 const fsBtn = document.getElementById('fs');
+const touchBtn = document.getElementById('touch');
 const reconnectBtn = document.getElementById('reconnect');
 const statsEl = document.getElementById('stats');
+const pinbox = document.getElementById('pinbox');
+const pinform = document.getElementById('pinform');
+const pinInput = document.getElementById('pin');
 const setStatus = (s) => { statusEl.textContent = s; };
 
-let pc, ws, statsTimer, reconnectTimer;
+let pc, ws, dc, statsTimer, reconnectTimer;
+let touchEnabled = true;
+let touchActive = false;
+let lastMoveSent = 0;
+const MOVE_THROTTLE_MS = 16; // ~60Hz
+let cfg = { pinRequired: false, touch: false };
+
+function getPin() {
+  const url = new URLSearchParams(location.search).get('pin');
+  if (url) return url;
+  return localStorage.getItem('tm.pin') || '';
+}
+function savePin(p) { localStorage.setItem('tm.pin', p); }
+
+async function bootstrap() {
+  try { cfg = await (await fetch('/api/config')).json(); } catch {}
+  if (cfg.pinRequired && !getPin()) { pinbox.classList.remove('hidden'); return; }
+  connect();
+}
+
+pinform.onsubmit = (e) => {
+  e.preventDefault();
+  savePin(pinInput.value.trim());
+  pinbox.classList.add('hidden');
+  connect();
+};
 
 function connect() {
   clearTimeout(reconnectTimer);
@@ -13,44 +42,38 @@ function connect() {
   if (pc) { try { pc.close(); } catch {} }
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?role=receiver&room=tesla`);
+  const pin = getPin();
+  const qs = `role=receiver&room=tesla${pin ? '&pin=' + encodeURIComponent(pin) : ''}`;
+  ws = new WebSocket(`${proto}://${location.host}/ws?${qs}`);
   ws.onopen = () => setStatus('signaling connected, waiting for sender…');
-  ws.onclose = () => { setStatus('signaling closed — retrying'); scheduleReconnect(); };
+  ws.onclose = (e) => {
+    if (e.code === 4401) { setStatus('bad PIN'); savePin(''); pinbox.classList.remove('hidden'); return; }
+    setStatus('signaling closed — retrying');
+    scheduleReconnect();
+  };
   ws.onerror = () => setStatus('signaling error');
 
   ws.onmessage = async (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'offer') {
-      pc = new RTCPeerConnection({
-        iceServers: [],
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require',
-      });
+      pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+      pc.ondatachannel = (ev) => { dc = ev.channel; setupDc(); };
       pc.ontrack = (ev) => {
         v.srcObject = ev.streams[0];
         document.body.classList.add('connected');
         setStatus('streaming');
-
-        // Lowest possible playout delay on a clean LAN.
         try { ev.receiver.playoutDelayHint = 0; } catch {}
         try { ev.receiver.jitterBufferTarget = 0; } catch {}
-
         startStatsLoop();
-        // Try fullscreen automatically. Tesla browser usually blocks without
-        // a user gesture, so we also retry on first tap (see below).
         tryFullscreen();
       };
-      pc.onicecandidate = (ev) => {
-        if (ev.candidate) ws.send(JSON.stringify({ type: 'ice', candidate: ev.candidate }));
-      };
+      pc.onicecandidate = (ev) => { if (ev.candidate) ws.send(JSON.stringify({ type: 'ice', candidate: ev.candidate })); };
       pc.onconnectionstatechange = () => {
         setStatus('pc: ' + pc.connectionState);
-        if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
-          document.body.classList.remove('connected');
-          scheduleReconnect();
+        if (['failed','disconnected','closed'].includes(pc.connectionState)) {
+          document.body.classList.remove('connected'); scheduleReconnect();
         }
       };
-
       await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -64,17 +87,72 @@ function connect() {
   };
 }
 
-function scheduleReconnect() {
-  clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(connect, 1500);
+function setupDc() {
+  dc.onopen = () => setStatus('touch channel open');
+  dc.onclose = () => {};
 }
 
-function tryFullscreen() {
-  if (document.fullscreenElement) return;
-  document.documentElement.requestFullscreen?.().catch(() => {});
+function scheduleReconnect() { clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 1500); }
+function tryFullscreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {}); }
+
+// ───────── Touch → DataChannel ─────────
+// Compute normalized coords (0..1) of a pointer event relative to the actual
+// rendered video frame inside <video> (which uses object-fit:contain so there
+// may be letterbox bars). We map only inside-the-frame coordinates.
+function pointerToVideoCoords(ev) {
+  const rect = v.getBoundingClientRect();
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return null;
+  const scale = Math.min(rect.width / vw, rect.height / vh);
+  const dispW = vw * scale, dispH = vh * scale;
+  const offX = rect.left + (rect.width  - dispW) / 2;
+  const offY = rect.top  + (rect.height - dispH) / 2;
+  const x = (ev.clientX - offX) / dispW;
+  const y = (ev.clientY - offY) / dispH;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { x, y };
 }
 
-// Stats overlay: shows the numbers that actually matter for "is this usable?".
+function sendTouch(type, x, y) {
+  if (!touchEnabled || !cfg.touch) return;
+  const payload = JSON.stringify({ type, x, y });
+  if (dc?.readyState === 'open') dc.send(payload);
+  else fetch('/api/inject', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }).catch(() => {});
+}
+
+v.addEventListener('pointerdown', (ev) => {
+  const c = pointerToVideoCoords(ev); if (!c) return;
+  if (touchEnabled && cfg.touch) ev.preventDefault();
+  touchActive = true;
+  v.setPointerCapture(ev.pointerId);
+  sendTouch('down', c.x, c.y);
+});
+v.addEventListener('pointermove', (ev) => {
+  if (!touchActive) return;
+  const now = performance.now();
+  if (now - lastMoveSent < MOVE_THROTTLE_MS) return;
+  lastMoveSent = now;
+  const c = pointerToVideoCoords(ev); if (!c) return;
+  sendTouch('move', c.x, c.y);
+});
+const endTouch = (ev) => {
+  if (!touchActive) return;
+  touchActive = false;
+  try { v.releasePointerCapture(ev.pointerId); } catch {}
+  const c = pointerToVideoCoords(ev); if (!c) return;
+  sendTouch('up', c.x, c.y);
+};
+v.addEventListener('pointerup', endTouch);
+v.addEventListener('pointercancel', endTouch);
+
+touchBtn.onclick = (e) => {
+  e.stopPropagation();
+  touchEnabled = !touchEnabled;
+  touchBtn.textContent = 'Touch: ' + (touchEnabled ? 'on' : 'off');
+  touchBtn.classList.toggle('on', touchEnabled);
+};
+
+// ───────── Stats ─────────
 function startStatsLoop() {
   clearInterval(statsTimer);
   let lastBytes = 0, lastTs = 0, lastFrames = 0;
@@ -98,16 +176,15 @@ function startStatsLoop() {
   }, 1000);
 }
 
-reconnectBtn.onclick = connect;
-fsBtn.onclick = tryFullscreen;
+reconnectBtn.onclick = (e) => { e.stopPropagation(); connect(); };
+fsBtn.onclick = (e) => { e.stopPropagation(); tryFullscreen(); };
 
-// First user tap: also tries fullscreen (gesture context) and unmutes.
-// Show UI briefly on tap so the user can find buttons.
-document.addEventListener('pointerdown', () => {
+// On first tap anywhere outside the video, also try fullscreen and show UI.
+document.addEventListener('pointerdown', (ev) => {
+  if (ev.target === v) return; // video has its own handler
   tryFullscreen();
   document.body.classList.add('touched');
   setTimeout(() => document.body.classList.remove('touched'), 3000);
 }, { passive: true });
 
-// Auto-connect on page load — Tesla user just navigates to the URL.
-connect();
+bootstrap();

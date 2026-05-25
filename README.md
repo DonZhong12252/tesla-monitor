@@ -1,68 +1,101 @@
 # tesla-monitor
 
-Use your Tesla's center screen as an **extended monitor** for a MacBook, over the car's browser app.
+Use your Tesla's center screen as a **low-latency extended monitor** for your MacBook, with **touch control** — the in-car browser sends taps and drags back to your Mac as real mouse events.
 
 ```
 [ Mac apps ]
-     │  (drag window onto BetterDisplay virtual screen)
+     │ drag window onto BetterDisplay virtual screen
      ▼
-[ BetterDisplay virtual display ]
-     │  (Chrome getDisplayMedia picks this screen)
+[ Virtual display ]
+     │ Chrome getDisplayMedia
      ▼
-[ /sender page in Mac Chrome ]
-     │  WebRTC, H.264, peer-to-peer over Wi-Fi
-     ▼
-[ /receiver page in Tesla browser ]   ← fullscreen <video>
+[ Mac /sender ]  ─── WebRTC video ──▶  [ Tesla /receiver ]   ◀── you tap the screen
+                                                │
+[ cliclick ] ◀── /api/inject ◀── WebRTC DataChannel ─────────┘
 ```
+
+## Features
+
+- **WebRTC H.264 Baseline** — no B-frames, ~80–140ms end-to-end on clean 5GHz LAN.
+- **Touch control** — tap, drag, click anywhere on Tesla screen → injected as mouse events on Mac.
+- **mDNS** — Tesla connects to `http://tesla-monitor.local:8080/receiver`. No IP memorization.
+- **Profiles** — built-in presets for MCU1/2, MCU3, highway; save your own.
+- **PIN auth** — optional 4-digit PIN gates the signaling server.
+- **Auto-start on login** — launchd LaunchAgent.
+- **Auto-reconnect** + live stats overlay (fps / kbps / rtt / jitter / drops).
 
 ## One-time setup
 
-1. **BetterDisplay** (free) — install from <https://github.com/waydabber/BetterDisplay>. Create a *virtual screen* at e.g. 1920×1200. macOS will treat it as a real second monitor you can drag windows onto.
-2. **Node 18+** — `node --version` to check.
-3. Install deps:
-   ```
-   cd ~/tesla-monitor
-   npm install
-   ```
+```bash
+# 1. Clone & install deps
+gh repo clone DonZhong12252/tesla-monitor   # or: git clone https://github.com/DonZhong12252/tesla-monitor.git
+cd tesla-monitor
+npm install
+
+# 2. Install required Homebrew tools
+brew install cliclick                       # required for touch control
+brew install --cask betterdisplay           # required for virtual extended display
+
+# 3. Create a virtual screen in BetterDisplay (e.g. 1600×1000) and drag it
+#    into your desired position in System Settings → Displays → Arrangement.
+
+# 4. Detect display geometry and edit config.json
+npm run detect-displays
+# Set display.offsetX / offsetY / width / height in config.json to match
+# the BetterDisplay virtual screen's position in macOS global coordinates.
+
+# 5. (Optional) Set a PIN in config.json.
+
+# 6. (Optional) Auto-start on login:
+npm run install-launchd                     # uninstall: npm run uninstall-launchd
+```
+
+Grant **Accessibility** permission when prompted — `cliclick` needs it to inject mouse events. System Settings → Privacy & Security → Accessibility → add Terminal (or whatever launched `node`).
 
 ## Each session
 
-1. **Mac hotspot**: System Settings → General → Sharing → Internet Sharing → enable. Note the network name & password.
-2. In the Tesla: Controls → Wi-Fi → join your Mac's hotspot.
-3. On the Mac, find your hotspot IP: `ipconfig getifaddr bridge100` (usually `192.168.2.1`).
-4. Start the server:
-   ```
-   npm start
-   ```
-   It prints the LAN URLs it's reachable on.
-5. **On the Mac**, open Chrome to <http://localhost:8080/sender> → click *Start sharing* → pick the BetterDisplay virtual screen from the OS picker.
-6. **In the Tesla browser**, navigate to `http://<mac-ip>:8080/receiver` → tap *Connect* → tap *Fullscreen* (or tap the video).
+1. **Mac hotspot**: System Settings → General → Sharing → Internet Sharing → enable. **Force 5GHz** under "Wi-Fi Options" → Channel (36 / 40 / 149 / etc). 2.4GHz adds 40–80ms.
+2. **In the Tesla**: Controls → Wi-Fi → join the hotspot.
+3. **On the Mac**: `npm start` (skip if you installed the LaunchAgent).
+4. **Mac browser**: open <http://localhost:8080/sender> → pick profile → click *Start sharing* → pick the BetterDisplay virtual screen.
+5. **Tesla browser**: navigate to <http://tesla-monitor.local:8080/receiver> → it auto-connects → tap once for fullscreen.
 
-You can now drag windows onto the virtual screen on your Mac — they show up on the Tesla.
+Now drag windows onto the virtual screen — they appear on the Tesla. Tap on the Tesla — your Mac cursor moves and clicks.
 
-## Notes / limitations
+## Tuning knobs (sender UI)
 
-- **Park only.** Tesla disables the browser in Drive on most firmwares; this is a feature, not a bug.
-- **One-way.** Touches on the Tesla screen are not forwarded back to the Mac (Tesla's browser does not expose pointer events to a remote host).
-- **Codec.** The sender forces H.264 **Constrained Baseline** (`profile-level-id=42e0xx`) — no B-frames, no reorder delay, hardware-decoded on the MCU.
-- **Tuning knobs** (query params on `/sender`): `w`, `h`, `fps`, `kbps`, `start`. Defaults: `1600×1000 @ 30fps`, `8000 kbps` max. Example for older MCU: `/sender?w=1280&h=800&fps=30&kbps=4000`. Example for buttery 60fps cursor on MCU3: `/sender?w=1600&h=1000&fps=60&kbps=12000`.
-- **Receiver auto-connects** the moment you load `/receiver` — no button tap needed. Tap once anywhere on the video to trigger fullscreen (Tesla's browser requires a gesture).
-- **Stats overlay** (bottom-right on Tesla) shows live fps / kbps / rtt / jitter / dropped frames. If `rtt` > 30ms or `jit` > 10ms, you're on 2.4GHz — fix that first.
+| Profile | W × H | fps | kbps | Best for |
+|---|---|---|---|---|
+| MCU3 — 1600×1000 @ 30 (default) | 1600×1000 | 30 | 8000 | most usage |
+| MCU3 — 1920×1200 @ 30 | 1920×1200 | 30 | 10000 | sharper text |
+| MCU3 — 1600×1000 @ 60 (smooth) | 1600×1000 | 60 | 12000 | smooth cursor / video |
+| MCU1/2 — 1280×800 @ 30 | 1280×800 | 30 | 4000 | older Atom/Intel MCU |
+| Highway (low bandwidth) | 1280×800 | 20 | 2500 | weak signal |
 
-## Low-latency checklist (do these or it won't feel like a monitor)
+Save your own profile via "Save current as…".
 
-1. **Force the Mac hotspot to 5GHz.** macOS System Settings → General → Sharing → ⓘ next to *Internet Sharing* → set *"Wi-Fi Options" → Channel* to a 5GHz channel (36, 40, 149, etc.). The 2.4GHz default has 40–80ms of extra latency and constant jitter.
-2. **Park near the Mac.** Tesla's Wi-Fi antenna is mediocre; 10ft line-of-sight is night-and-day vs 30ft through the car body.
-3. **Close other tabs on the Mac.** Chrome shares one encoder thread; a YouTube tab in the background will stutter your stream.
-4. **Use BetterDisplay's "Resolution" matching your stream**, not higher. Capturing a 4K virtual screen down to 1600×1000 costs encoder time. Set the virtual display to exactly 1600×1000 (or whatever you stream at).
-5. **On MCU3 (Ryzen)** you can push `fps=60, kbps=12000` and it stays smooth. On MCU1/2 (Atom/Intel) cap at `fps=30, kbps=4000, w=1280, h=800`.
+## Touch coordinate setup
 
-Expected end-to-end latency on a clean 5GHz LAN: **80–140ms**. Good enough for browsing, terminals, docs, video. Not good enough for twitch gaming or precise drawing.
-- **No internet via hotspot?** That's fine — WebRTC connects directly over the LAN; no STUN/TURN needed.
-- **HTTPS.** `getDisplayMedia` requires a secure context on the Mac side, but `http://localhost` qualifies as secure, so Chrome allows it. The Tesla side just plays video — `http://` is fine.
+`config.json → display` tells the server where the BetterDisplay virtual screen sits in macOS global coordinate space. The main display's top-left is `(0,0)`. If your virtual display is to the right of a 1920×1200 main screen:
+
+```json
+"display": { "offsetX": 1920, "offsetY": 0, "width": 1600, "height": 1000 }
+```
+
+For exact arrangement: `brew install jakehilborn/jakehilborn/displayplacer && displayplacer list`.
 
 ## Files
 
-- `server.js` — static file server + WebSocket signaling broker
-- `public/sender.html` + `sender.js` — Mac capture page
-- `public/receiver.html` + `receiver.js` — Tesla playback page
+- `server.js` — static files + WS signaling + `/api/inject` + Bonjour
+- `config.json` — PIN, port, display offset, touch settings
+- `public/sender.{html,js}` — Mac capture, profiles, touch forwarding
+- `public/receiver.{html,js}` — Tesla playback, touch capture, stats
+- `scripts/install-launchd.js` — install/uninstall LaunchAgent
+- `scripts/detect-displays.js` — print display geometry
+
+## Notes / limitations
+
+- **Park only.** Tesla disables the browser in Drive on most firmware.
+- **One-way audio omitted.** macOS doesn't expose system audio without a virtual driver (BlackHole). Out of scope.
+- **Touch is mouse, not multitouch.** Single-finger tap = click, single-finger drag = mouse drag. No pinch-to-zoom, no scroll wheel.
+- **MCU compatibility.** H.264 Baseline works on all known Tesla MCUs (Atom, Intel, Ryzen). If video is black, drop to the `MCU1/2` profile.

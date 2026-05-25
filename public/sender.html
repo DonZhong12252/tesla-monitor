@@ -2,15 +2,43 @@
 <meta charset="utf-8">
 <title>sender · tesla-monitor</title>
 <style>
-  body{font-family:ui-sans-serif,system-ui;margin:1.5rem;max-width:50rem;line-height:1.4}
-  video{width:100%;background:#111;border-radius:8px;margin-top:1rem}
-  button{font-size:1rem;padding:.6rem 1rem;margin-right:.5rem}
-  #log{white-space:pre-wrap;background:#f4f4f4;padding:.75rem;border-radius:6px;font:12px ui-monospace;height:10rem;overflow:auto}
+  body{font-family:ui-sans-serif,system-ui;margin:1.5rem;max-width:60rem;line-height:1.4}
+  video{width:100%;background:#111;border-radius:8px;margin-top:1rem;max-height:50vh;object-fit:contain}
+  button,select,input{font-size:1rem;padding:.5rem .9rem;margin:.2rem .3rem .2rem 0;border-radius:6px;border:1px solid #ccc}
+  button{background:#222;color:#fff;border:0;cursor:pointer}
+  button:disabled{opacity:.5}
+  #log{white-space:pre-wrap;background:#f4f4f4;padding:.75rem;border-radius:6px;font:12px ui-monospace;height:12rem;overflow:auto;margin-top:.75rem}
+  .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .muted{color:#666;font-size:.85rem}
+  fieldset{border:1px solid #ddd;border-radius:8px;margin-top:1rem}
+  legend{font-weight:600;padding:0 .5rem}
+  label{font-size:.85rem;color:#555;margin-right:.25rem}
 </style>
-<h1>Sender (Mac)</h1>
-<p>Pick the BetterDisplay virtual screen when the OS picker appears.</p>
-<button id="start">Start sharing</button>
-<button id="stop" disabled>Stop</button>
+<h1>tesla-monitor · sender</h1>
+
+<fieldset>
+  <legend>Profile</legend>
+  <div class="row">
+    <select id="profile"></select>
+    <button id="saveProfile">Save current as…</button>
+    <button id="delProfile">Delete</button>
+  </div>
+  <div class="row" style="margin-top:.5rem">
+    <label>W <input id="w" type="number" style="width:6rem"></label>
+    <label>H <input id="h" type="number" style="width:6rem"></label>
+    <label>fps <input id="fps" type="number" style="width:5rem"></label>
+    <label>kbps <input id="kbps" type="number" style="width:6rem"></label>
+    <label>PIN <input id="pin" type="text" style="width:6rem" placeholder="(optional)"></label>
+  </div>
+</fieldset>
+
+<div class="row" style="margin-top:1rem">
+  <button id="start">Start sharing</button>
+  <button id="stop" disabled>Stop</button>
+  <span id="touchStatus" class="muted"></span>
+</div>
+
 <video id="preview" autoplay muted playsinline></video>
 <div id="log"></div>
+
 <script type="module" src="/sender.js"></script>
