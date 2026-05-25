@@ -24,7 +24,11 @@ Use your Tesla's center screen as a **low-latency extended monitor** for your Ma
 - **Auto-start on login** — launchd LaunchAgent.
 - **Auto-reconnect** + live stats overlay (fps / kbps / rtt / jitter / drops).
 
-## One-time setup
+## 📖 Full setup guide
+
+**→ See [SETUP.md](./SETUP.md) for the complete step-by-step setup for both Mac and Tesla.**
+
+## Quick setup (TL;DR)
 
 ```bash
 # 1. Clone & install deps
