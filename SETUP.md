@@ -1,224 +1,138 @@
 # Setup Guide
 
-Complete setup for both the Mac (sender) and the Tesla (receiver).
+Use your Tesla center screen as an extended Mac monitor — with touch control.
+Works from **any network** (home Wi-Fi, hotspot, even Tesla LTE) thanks to a built-in Cloudflare Tunnel.
 
 ---
 
-## Part 1 — Mac setup (one-time, ~10 minutes)
-
-### 1. Install dependencies
+## One-time setup on your MacBook (~5 minutes)
 
 ```bash
-# Clone the repo
-gh repo clone DonZhong12252/tesla-monitor
-# or: git clone https://github.com/DonZhong12252/tesla-monitor.git
-
+# 1. Clone & install
+cd ~
+git clone https://github.com/DonZhong12252/tesla-monitor.git
 cd tesla-monitor
 npm install
 
-# Required Homebrew tools
-brew install cliclick                  # for touch control (Tesla → Mac input)
-brew install --cask betterdisplay      # for virtual extended display
+# 2. Install Homebrew tools (if you don't have brew: https://brew.sh)
+brew install cloudflared cliclick
+brew install --cask betterdisplay
+
+# 3. Create a virtual display in BetterDisplay
+#    - Open BetterDisplay (menu bar icon)
+#    - + New Virtual Screen, name it "Tesla", resolution 1600×1000
+#    - System Settings → Displays → Arrangement → drag "Tesla" to where you want it
 ```
 
-### 2. Create a virtual display in BetterDisplay
+**Grant Accessibility permission** so touch control works:
+- System Settings → Privacy & Security → Accessibility
+- Add **Terminal** (or whatever app you launch `npm start` from)
 
-1. Open **BetterDisplay** from Applications (it lives in the menu bar).
-2. Menu bar icon → **+ New Virtual Screen** → name it "Tesla".
-3. Set resolution to **1600×1000** (matches the default profile). You can change later.
-4. Open **System Settings → Displays → Arrangement** — drag the new "Tesla" virtual display to wherever you want it relative to your main display (e.g. to the right).
+---
 
-### 3. Find your virtual display's position
+## Every time you want to use it
 
-The Mac needs to know where the virtual display sits in macOS global coordinate space so touch events land in the right pixels.
+### On your MacBook
 
 ```bash
-npm run detect-displays
-```
-
-This prints all your displays. Identify the virtual one (its name will match what you set in BetterDisplay).
-
-- The **main display's** top-left is always `(0, 0)`.
-- A display to the **right** of a 1920×1200 main has `offsetX = 1920`, `offsetY = 0`.
-- A display **above** the main has `offsetX = 0`, `offsetY = -<that display's height>`.
-
-For exact pixel-perfect coords, install `displayplacer` and run it:
-
-```bash
-brew install jakehilborn/jakehilborn/displayplacer
-displayplacer list
-```
-
-Look for `origin:(x,y)` on the virtual display.
-
-### 4. Edit `config.json`
-
-```jsonc
-{
-  "pin": "",                    // optional — set any string to require PIN auth
-  "hostname": "tesla-monitor",  // mDNS name → http://tesla-monitor.local:8080
-  "port": 8080,
-  "display": {
-    "offsetX": 1920,            // ← from step 3
-    "offsetY": 0,
-    "width": 1600,              // ← match the virtual display resolution
-    "height": 1000
-  },
-  "touch": {
-    "enabled": true,
-    "moveThrottleHz": 60
-  }
-}
-```
-
-### 5. Grant Accessibility permission
-
-`cliclick` (the tool that injects mouse events) needs Accessibility access.
-
-1. **System Settings → Privacy & Security → Accessibility**.
-2. Click **+** and add:
-   - **Terminal** (or **iTerm**, **Warp**, whatever you launch `npm start` from), OR
-   - **Node.js** (if you use the launchd auto-start in step 7).
-3. Make sure the toggle is **ON**.
-
-First time you tap on the Tesla, macOS may pop up a permission dialog — accept it.
-
-### 6. (Optional) Set up Mac hotspot for in-car use
-
-If you'll use this in the car (not just parked at home on Wi-Fi):
-
-1. **System Settings → General → Sharing → Internet Sharing**.
-2. **Share connection from:** anything that's not Wi-Fi (Ethernet, Thunderbolt, iPhone USB). If your Mac only has Wi-Fi, you can't hotspot — you'll need to use the car's home Wi-Fi instead.
-3. **To computers using:** Wi-Fi → check the box.
-4. Click **Wi-Fi Options…**:
-   - Network name: anything (e.g. `mac-hotspot`)
-   - **Channel: pick a 5GHz channel (36, 40, 149, 153, etc.)** — this is critical. 2.4GHz adds 40–80ms latency and constant jitter.
-   - Security: WPA2/WPA3 Personal, set a password.
-5. Toggle **Internet Sharing** ON.
-
-### 7. (Optional) Auto-start on login
-
-```bash
-npm run install-launchd
-```
-
-Now the server runs on every login and respawns automatically if it crashes. Logs go to `tesla-monitor.log` in the repo folder. To remove: `npm run uninstall-launchd`.
-
-### 8. Start the server (if not auto-starting)
-
-```bash
+cd ~/tesla-monitor
 npm start
 ```
 
-You should see:
+That's it. The script:
+1. Starts the server
+2. Spawns a Cloudflare Tunnel (gives you a public HTTPS URL)
+3. Opens Chrome to the sender page automatically
+4. Prints the Tesla URL in big yellow text
+
+You'll see something like:
 
 ```
-tesla-monitor v0.2 on :8080
-pin: (none — set in config.json)
-touch: enabled
-Sender (open on Mac):  http://localhost:8080/sender
-Receiver (Tesla):      http://tesla-monitor.local:8080/receiver
-Fallback LAN URLs:
-  en0: http://192.168.4.161:8080
-  bridge100: http://192.168.2.1:8080
-mDNS: published as http://tesla-monitor.local:8080
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ✓  tesla-monitor is ready
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  On your Mac (Chrome should be opening):
+    http://localhost:8080/sender
+    → Click Start sharing → pick the BetterDisplay virtual screen
+
+  On your Tesla (type this URL in the browser):
+    https://random-words-here.trycloudflare.com/receiver
 ```
 
-### 9. Open the sender in Chrome
+In the Chrome tab that opened:
+- Click **Start sharing**
+- Pick the BetterDisplay virtual screen "Tesla" from the macOS picker
+- Click **Share**
 
-1. **Chrome on the Mac** → <http://localhost:8080/sender>
-2. Pick a profile (default `MCU3 — 1600×1000 @ 30` is a good start).
-3. Click **Start sharing**.
-4. macOS picker appears → pick the **BetterDisplay virtual screen** (the one you named "Tesla").
-5. Click **Share**.
+### On your Tesla
 
-Leave this tab open — closing it kills the stream.
+1. **Park.** (Browser is disabled while driving.)
+2. Tap **App Launcher → Browser**.
+3. Type the URL from your Mac terminal (the yellow one) into the address bar.
+4. Tap the **bookmark / star icon** to save it.
+5. Tap the video once → goes fullscreen, auto-connects.
+
+Drag any window onto the "Tesla" virtual display on your Mac — it appears on the Tesla. Tap on the Tesla — your Mac cursor moves and clicks.
 
 ---
 
-## Part 2 — Tesla setup (one-time, ~30 seconds)
+## The URL changes each time
 
-### 1. Park the car
+Cloudflare's free quick-tunnel gives you a random URL each session. You'll need to update the Tesla bookmark each time you start `npm start`. The URL is also saved to `.last-tunnel-url` in the repo so you can grab it easily.
 
-The browser is disabled while driving on most firmware.
+### Want a permanent URL?
 
-### 2. Join the network
-
-**Controls → Wi-Fi** → tap your Mac's hotspot (or your home Wi-Fi if at home) → enter password. The Tesla remembers it.
-
-### 3. Open the browser
-
-Tap the app launcher at the bottom of the screen (icon grid) → tap **Browser**.
-
-### 4. Navigate to the receiver
-
-In the address bar, type:
-
-```
-http://tesla-monitor.local:8080/receiver
-```
-
-Tap **Go**.
-
-> **If `tesla-monitor.local` doesn't resolve** (some MCU1/older browsers don't do mDNS), use the Mac's hotspot IP instead. On the Mac, run `ipconfig getifaddr bridge100` to get the IP (usually `192.168.2.1`). Then on Tesla, use `http://192.168.2.1:8080/receiver`. The hotspot IP is stable across reboots.
-
-### 5. Bookmark it
-
-Tap the **star / bookmark icon** in the address bar. Now it's one tap to open every time.
-
-### 6. Tap once to fullscreen
-
-The first tap on the video triggers fullscreen (Chromium requires a user gesture — can't auto-fullscreen). After that, the receiver:
-
-- Auto-connects to the Mac sender
-- Shows live stats (bottom-right): `fps / kbps / rtt / jitter / dropped`
-- Sends every tap/drag back to the Mac as a real mouse event
-
-### 7. (If PIN is set) Enter PIN once
-
-If you set a PIN in `config.json`, the Tesla shows a numeric input on first load. Enter it — it's saved in browser storage and won't ask again unless you clear data.
+Get a free Cloudflare account + register a free `*.cfargotunnel.com` named tunnel. Setup is ~5 minutes, one-time. Let me know if you want this added.
 
 ---
 
-## Part 3 — Daily use (once setup is done)
+## Daily flow
 
-### Mac side
+**Mac (one terminal command):**
+```bash
+cd ~/tesla-monitor && npm start
+```
 
-1. Hotspot is on (auto on login if you enabled it in System Settings).
-2. Server is running (auto on login if you ran `install-launchd`).
-3. Open <http://localhost:8080/sender> in Chrome → **Start sharing** → pick virtual display.
+Then in the Chrome tab that opens → **Start sharing** → pick virtual display.
 
-### Tesla side
+**Tesla:** park → browser → paste current URL → tap to fullscreen.
 
-1. Park, join hotspot if not already joined.
-2. Tap browser bookmark → tap video for fullscreen.
-3. Drag windows onto the virtual display on your Mac — they appear on the Tesla. Tap on the Tesla — your Mac cursor moves and clicks.
+To stop: `Ctrl-C` in the terminal.
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Tesla shows "connecting…" forever | Mac sender tab not open, or different Wi-Fi | Open `/sender` on Mac, confirm both devices on same network |
-| `tesla-monitor.local` doesn't load | Tesla MCU doesn't support mDNS | Use IP fallback (`ipconfig getifaddr bridge100`) |
-| Video is black on Tesla | H.264 profile too high for MCU | Switch to "MCU1/2" profile in sender UI |
-| Choppy / high `rtt` in stats | On 2.4GHz hotspot | Force 5GHz in System Settings → Sharing → Wi-Fi Options |
-| Touch does nothing | `cliclick` not installed or no Accessibility permission | `brew install cliclick`; add Terminal to Accessibility |
-| Touch clicks land in wrong spot | `display.offsetX/Y/width/height` wrong in `config.json` | Re-run `npm run detect-displays`, verify with `displayplacer list` |
-| Mac sender shows "⚠ touch disabled" | Server didn't find `cliclick` on PATH | Restart `npm start` after `brew install cliclick`; if using launchd, the plist's PATH includes `/opt/homebrew/bin` so it should work after reinstall |
-| Stream cuts out when Tesla switches to nav | Tesla suspends background browser tabs | Auto-reconnects when you switch back (1.5s) |
-| "bad PIN" on Tesla | Stale saved PIN | Tap the input area, retype |
+| Symptom | Fix |
+|---|---|
+| `cloudflared not found` | `brew install cloudflared` |
+| `cliclick not found` | `brew install cliclick` (touch control won't work without it) |
+| `server failed to start` | Port 8080 might be taken. Edit `config.json` → change `"port"` to e.g. 8081 |
+| Tesla says "site can't be reached" | Tunnel URL is stale. Check terminal output for current URL; restart with `npm start` if needed |
+| Touch clicks land in wrong spot | Edit `config.json → display` so `offsetX/Y/width/height` match your virtual display's position (run `npm run detect-displays`) |
+| Mac sender shows "⚠ touch disabled" | `cliclick` not installed or no Accessibility permission |
+| Video is black on Tesla | Pick "MCU1/2" profile in the sender UI |
+| Stream feels laggy | Try lower profile (1280×800 @ 30fps); the tunnel adds ~50ms vs LAN-direct |
 
-## Performance expectations
+## Tuning knobs (sender UI)
 
-On a **5GHz LAN, MCU3, line-of-sight**:
-- End-to-end latency: **80–140ms** (sub-frame at 30fps)
-- Touch round-trip: **30–60ms** (tap → Mac cursor moves)
-- Bandwidth: **4–8 Mbps** at 1600×1000 @ 30fps
+| Profile | Best for |
+|---|---|
+| MCU3 — 1600×1000 @ 30 (default) | most usage |
+| MCU3 — 1920×1200 @ 30 | sharper text |
+| MCU3 — 1600×1000 @ 60 (smooth) | smooth cursor / video |
+| MCU1/2 — 1280×800 @ 30 | older Atom/Intel MCU |
+| Highway (low bandwidth) | weak signal |
 
-On **2.4GHz or weak signal**:
-- Latency: **200–400ms**, visible cursor lag
-- Frequent jitter spikes, dropped frames
+## What the components do
 
-If your stats overlay shows `rtt > 30ms` or `jit > 10ms`, **the network is the problem, not the code**. Fix that first.
+- `npm start` (runs `start.js`) — orchestrator that does everything
+- `server.js` — Node WebSocket signaling + touch injection endpoint
+- `cloudflared` (subprocess) — public HTTPS tunnel
+- BetterDisplay virtual screen — the surface macOS treats as a second monitor
+- `cliclick` — injects mouse events on the Mac when Tesla taps
+
+## What changed from earlier versions
+
+The original setup required the Tesla and Mac to be on the same LAN, which kept failing because of router client-isolation, mDNS not working on Tesla browsers, and HTTPS-only mode. The Cloudflare Tunnel approach skips all of that — Cloudflare gives you a real HTTPS URL that works from any network the Tesla can reach.

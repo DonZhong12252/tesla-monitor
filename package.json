@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js",
+    "start": "node start.js",
+    "server-only": "node server.js",
     "install-launchd": "node scripts/install-launchd.js install",
     "uninstall-launchd": "node scripts/install-launchd.js uninstall",
     "detect-displays": "node scripts/detect-displays.js"
