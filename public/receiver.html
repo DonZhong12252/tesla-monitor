@@ -14,6 +14,8 @@
   #pinbox.hidden{display:none}
   #pinbox form{display:flex;gap:.5rem;flex-direction:column;align-items:center}
   #pinbox input{font:24px ui-monospace;padding:.5rem 1rem;width:8rem;text-align:center;border-radius:8px;border:1px solid #444;background:#111;color:#eee}
+  #tapsound{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:15;font-size:1.1rem;padding:.8rem 1.3rem;background:#2a6e;color:#fff;display:none}
+  body.needs-sound #tapsound{display:block}
   body.connected #ui{opacity:0;pointer-events:none}
   body.connected:hover #ui,body.connected.touched #ui{opacity:1;pointer-events:auto}
 </style>
@@ -21,9 +23,11 @@
 <div id="ui">
   <button id="fs">Fullscreen</button>
   <button id="touch" class="on">Touch: on</button>
+  <button id="sound">Sound: off</button>
   <button id="reconnect">Reconnect</button>
   <span id="status">connecting…</span>
 </div>
 <div id="stats"></div>
+<button id="tapsound">🔊 Tap for sound</button>
 <video id="v" autoplay playsinline muted></video>
 <script type="module" src="/receiver.js"></script>
