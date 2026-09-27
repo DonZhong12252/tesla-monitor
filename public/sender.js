@@ -251,6 +251,19 @@ async function pumpTouch() {
   touchSending = false;
 }
 
+// Tell the server which screen we captured so taps land on that screen.
+async function detectTouchTarget() {
+  if (!serverCfg.touch) return;
+  const st = localStream?.getVideoTracks()[0]?.getSettings() || {};
+  try {
+    const r = await (await fetch('/api/display', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: st.deviceId, width: st.width, height: st.height }) })).json();
+    const t = r.target;
+    log(`touch → ${t.name || 'display'} at (${t.offsetX}, ${t.offsetY}) ${t.width}×${t.height} pt [${t.source}]`);
+    if (t.source === 'config.json') log('⚠ could not identify the shared screen — taps use config.json → display. Screens: ' + JSON.stringify(r.screens));
+  } catch (e) { log('display detect failed:', e.message); }
+}
+
 async function start() {
   try {
     await loadServerCfg();
@@ -269,6 +282,7 @@ async function start() {
     localStream.getVideoTracks()[0].onended = () => stop();
     startBtn.disabled = true; stopBtn.disabled = false;
     log('capture started:', JSON.stringify(localStream.getVideoTracks()[0].getSettings()));
+    detectTouchTarget();
     const at = localStream.getAudioTracks()[0];
     if (at) log('audio:', at.label || 'track', JSON.stringify(at.getSettings()));
     renderAudioSources(); // device labels become visible once permission is granted

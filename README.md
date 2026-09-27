@@ -59,6 +59,7 @@ That single `npm start` does everything: launches the server, opens a Cloudflare
 
 - **Park only.** Tesla disables the browser in Drive on most firmware.
 - **Tunnel URL changes each session** (free tier). Permanent URL needs a free Cloudflare account + named tunnel.
+- **Touch targets the shared screen automatically.** When you start sharing, the server asks macOS where that screen sits and maps taps onto it (the sender log shows `touch → <screen> at (x, y)`). `config.json → display` is only a fallback if detection fails.
 - **Touch is mouse, not multitouch.** Tap = click, drag = mouse drag. No pinch/scroll wheel yet.
 - **Sound** on the sender: pick *System audio* and tick “Share system audio” in Chrome's picker (macOS 14.2+). On older macOS, install a loopback (`brew install blackhole-2ch`), send output to it via a Multi-Output Device in Audio MIDI Setup, and pick it as the Sound source. Browsers block autoplaying sound, so tap the Tesla screen once (or the 🔊 button) to hear it.
 - **Latency** is ~80-140ms on clean LAN, ~150-250ms through the tunnel.

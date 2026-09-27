@@ -27,6 +27,50 @@ const MIME = {
 };
 
 const hasCliclick = spawnSync('which', ['cliclick']).status === 0;
+
+// ───────── Display geometry ─────────
+// Touch coords must map onto the screen being shared, in macOS global *points*
+// (top-left origin). The config.json default (0,0 1600×1000) is the corner of
+// the MAIN screen, which sends taps to the wrong place — so we ask macOS for
+// every screen's frame and let the sender tell us which one it captured.
+const JXA_SCREENS = `
+ObjC.import('AppKit');
+const scr = $.NSScreen.screens, n = scr.count, mainH = scr.objectAtIndex(0).frame.size.height, out = [];
+for (let i = 0; i < n; i++) {
+  const s = scr.objectAtIndex(i), f = s.frame;
+  let name = ''; try { name = ObjC.unwrap(s.localizedName) || ''; } catch (e) {}
+  out.push({ id: Number(ObjC.unwrap(s.deviceDescription.objectForKey('NSScreenNumber'))), name,
+    x: f.origin.x, y: mainH - (f.origin.y + f.size.height), w: f.size.width, h: f.size.height,
+    scale: s.backingScaleFactor, main: i === 0 });
+}
+JSON.stringify(out);`;
+function listScreens() {
+  if (process.platform !== 'darwin') return [];
+  const r = spawnSync('osascript', ['-l', 'JavaScript', '-e', JXA_SCREENS], { encoding: 'utf8', timeout: 5000 });
+  try { return JSON.parse(r.stdout.trim()); } catch { return []; }
+}
+// Active mapping for injection; starts from config, replaced by auto-detect.
+let target = { ...config.display, source: 'config.json' };
+
+// hint: { deviceId: 'screen:<CGDirectDisplayID>:0', width, height } from the
+// sender's capture track settings.
+function pickScreen(hint = {}) {
+  const screens = listScreens();
+  if (!screens.length) return { target, screens };
+  const idMatch = String(hint.deviceId || '').match(/^screen:(\d+):/);
+  let s = idMatch && screens.find(d => d.id === +idMatch[1]);
+  let how = 'display id';
+  if (!s && hint.width && hint.height) {
+    const ar = hint.width / hint.height;
+    const byAspect = screens.filter(d => Math.abs(d.w / d.h - ar) < 0.02);
+    const nonMain = byAspect.filter(d => !d.main);
+    s = nonMain.length === 1 ? nonMain[0] : byAspect.length === 1 ? byAspect[0] : null;
+    how = 'aspect ratio';
+  }
+  if (!s && screens.length === 1) { s = screens[0]; how = 'only screen'; }
+  if (s) target = { offsetX: s.x, offsetY: s.y, width: s.w, height: s.h, name: s.name, source: how };
+  return { target, screens };
+}
 if (config.touch?.enabled && !hasCliclick) {
   console.warn('⚠  cliclick not found — touch control disabled. Install: brew install cliclick');
 }
@@ -37,6 +81,18 @@ const server = http.createServer((req, res) => {
   const p = url.pathname;
 
   if (p === '/api/inject' && req.method === 'POST') return handleInject(req, res);
+  if (p === '/api/display' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      let hint = {}; try { hint = JSON.parse(body); } catch {}
+      const result = pickScreen(hint);
+      console.log(`touch → ${result.target.name || 'display'} @ ${result.target.offsetX},${result.target.offsetY} ${result.target.width}×${result.target.height}pt (${result.target.source})`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    });
+    return;
+  }
   if (p === '/api/config' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
@@ -72,11 +128,14 @@ let injecting = false;
 let buttonDown = false;
 
 function toPx(x, y) {
-  const d = config.display;
-  return [
-    Math.round(d.offsetX + Math.max(0, Math.min(1, x)) * d.width),
-    Math.round(d.offsetY + Math.max(0, Math.min(1, y)) * d.height),
-  ];
+  const d = target;
+  // Stay 1pt inside the screen's edge so x=1 doesn't land on the neighbour.
+  const px = Math.round(d.offsetX + Math.max(0, Math.min(1, x)) * (d.width - 1));
+  const py = Math.round(d.offsetY + Math.max(0, Math.min(1, y)) * (d.height - 1));
+  // cliclick reads a leading '-' as *relative* movement; '=' forces absolute,
+  // which matters for screens left of / above the main one.
+  const abs = (n) => (n < 0 ? `=${n}` : `${n}`);
+  return `${abs(px)},${abs(py)}`;
 }
 
 function enqueueInject(type, x, y) {
@@ -91,11 +150,11 @@ function pumpInject() {
   const batch = injectQueue.splice(0);
   const args = ['-w', '10'];
   for (const { type, x, y } of batch) {
-    const [px, py] = toPx(x, y);
-    if (type === 'down') { args.push(`m:${px},${py}`, `dd:${px},${py}`); buttonDown = true; }
-    else if (type === 'up') { args.push(`du:${px},${py}`); buttonDown = false; }
-    else if (type === 'move') args.push(`${buttonDown ? 'dm' : 'm'}:${px},${py}`);
-    else if (type === 'click') args.push(`c:${px},${py}`);
+    const at = toPx(x, y);
+    if (type === 'down') { args.push(`m:${at}`, `dd:${at}`); buttonDown = true; }
+    else if (type === 'up') { args.push(`du:${at}`); buttonDown = false; }
+    else if (type === 'move') args.push(`${buttonDown ? 'dm' : 'm'}:${at}`);
+    else if (type === 'click') args.push(`c:${at}`);
   }
   injecting = true;
   const child = spawn('cliclick', args, { stdio: 'ignore' });
