@@ -151,7 +151,9 @@ function tryFullscreen() { if (!document.fullscreenElement) document.documentEle
 // Compute normalized coords (0..1) of a pointer event relative to the actual
 // rendered video frame inside <video> (which uses object-fit:contain so there
 // may be letterbox bars). We map only inside-the-frame coordinates.
-function pointerToVideoCoords(ev) {
+// With clamp=true (mid-drag), points outside the frame snap to its edge so a
+// finger lifted on the letterbox bars still releases the mouse button.
+function pointerToVideoCoords(ev, clamp = false) {
   const rect = v.getBoundingClientRect();
   const vw = v.videoWidth, vh = v.videoHeight;
   if (!vw || !vh) return null;
@@ -161,6 +163,7 @@ function pointerToVideoCoords(ev) {
   const offY = rect.top  + (rect.height - dispH) / 2;
   const x = (ev.clientX - offX) / dispW;
   const y = (ev.clientY - offY) / dispH;
+  if (clamp) return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) };
   if (x < 0 || x > 1 || y < 0 || y > 1) return null;
   return { x, y };
 }
@@ -184,14 +187,14 @@ v.addEventListener('pointermove', (ev) => {
   const now = performance.now();
   if (now - lastMoveSent < MOVE_THROTTLE_MS) return;
   lastMoveSent = now;
-  const c = pointerToVideoCoords(ev); if (!c) return;
+  const c = pointerToVideoCoords(ev, true); if (!c) return;
   sendTouch('move', c.x, c.y);
 });
 const endTouch = (ev) => {
   if (!touchActive) return;
   touchActive = false;
   try { v.releasePointerCapture(ev.pointerId); } catch {}
-  const c = pointerToVideoCoords(ev); if (!c) return;
+  const c = pointerToVideoCoords(ev, true) || { x: 0.5, y: 0.5 };
   sendTouch('up', c.x, c.y);
 };
 v.addEventListener('pointerup', endTouch);

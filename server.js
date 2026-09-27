@@ -61,6 +61,49 @@ const server = http.createServer((req, res) => {
 
 // ───────── Touch injection ─────────
 // Body shape: { type: 'down'|'up'|'move'|'click', x: 0..1, y: 0..1 }
+//
+// Events are applied strictly in order by ONE cliclick process at a time.
+// Spawning a process per event let them race (cursor jumping back and forth),
+// so instead we queue, coalesce consecutive moves to the latest position, and
+// batch whatever is pending into a single cliclick call. down/up are never
+// dropped, so the Mac can't get stuck with the button held.
+const injectQueue = [];
+let injecting = false;
+let buttonDown = false;
+
+function toPx(x, y) {
+  const d = config.display;
+  return [
+    Math.round(d.offsetX + Math.max(0, Math.min(1, x)) * d.width),
+    Math.round(d.offsetY + Math.max(0, Math.min(1, y)) * d.height),
+  ];
+}
+
+function enqueueInject(type, x, y) {
+  const last = injectQueue[injectQueue.length - 1];
+  if (type === 'move' && last?.type === 'move') { last.x = x; last.y = y; }
+  else injectQueue.push({ type, x, y });
+  pumpInject();
+}
+
+function pumpInject() {
+  if (injecting || !injectQueue.length) return;
+  const batch = injectQueue.splice(0);
+  const args = ['-w', '10'];
+  for (const { type, x, y } of batch) {
+    const [px, py] = toPx(x, y);
+    if (type === 'down') { args.push(`m:${px},${py}`, `dd:${px},${py}`); buttonDown = true; }
+    else if (type === 'up') { args.push(`du:${px},${py}`); buttonDown = false; }
+    else if (type === 'move') args.push(`${buttonDown ? 'dm' : 'm'}:${px},${py}`);
+    else if (type === 'click') args.push(`c:${px},${py}`);
+  }
+  injecting = true;
+  const child = spawn('cliclick', args, { stdio: 'ignore' });
+  const done = () => { injecting = false; pumpInject(); };
+  child.on('exit', done);
+  child.on('error', done);
+}
+
 async function handleInject(req, res) {
   if (!hasCliclick || !config.touch?.enabled) { res.writeHead(503); return res.end('touch disabled'); }
   let body = '';
@@ -70,12 +113,8 @@ async function handleInject(req, res) {
     try { msg = JSON.parse(body); } catch { res.writeHead(400); return res.end('bad json'); }
     const { type, x, y } = msg;
     if (typeof x !== 'number' || typeof y !== 'number') { res.writeHead(400); return res.end('bad coords'); }
-    const d = config.display;
-    const px = Math.round(d.offsetX + Math.max(0, Math.min(1, x)) * d.width);
-    const py = Math.round(d.offsetY + Math.max(0, Math.min(1, y)) * d.height);
-    const cmd = ({ down: 'dd', up: 'du', move: 'm', click: 'c' })[type];
-    if (!cmd) { res.writeHead(400); return res.end('bad type'); }
-    spawn('cliclick', [`${cmd}:${px},${py}`], { stdio: 'ignore' });
+    if (!['down', 'up', 'move', 'click'].includes(type)) { res.writeHead(400); return res.end('bad type'); }
+    enqueueInject(type, x, y);
     res.writeHead(204); res.end();
   });
 }

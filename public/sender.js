@@ -225,15 +225,30 @@ async function makeOffer() {
   }
 }
 
-let injectInFlight = 0;
-async function handleTouch(data) {
+// Forward touch events to the server one at a time, in order. Consecutive
+// moves collapse to the latest position; down/up are never dropped (dropping
+// an 'up' used to leave the Mac's mouse button stuck down).
+const touchQueue = [];
+let touchSending = false;
+function handleTouch(data) {
   if (!serverCfg.touch) return;
-  if (injectInFlight > 4) return;
-  injectInFlight++;
-  try {
-    await fetch('/api/inject', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: data });
-  } catch {}
-  finally { injectInFlight--; }
+  let msg;
+  try { msg = JSON.parse(data); } catch { return; }
+  const last = touchQueue[touchQueue.length - 1];
+  if (msg.type === 'move' && last?.type === 'move') touchQueue[touchQueue.length - 1] = msg;
+  else touchQueue.push(msg);
+  pumpTouch();
+}
+async function pumpTouch() {
+  if (touchSending) return;
+  touchSending = true;
+  while (touchQueue.length) {
+    const msg = touchQueue.shift();
+    try {
+      await fetch('/api/inject', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msg) });
+    } catch {}
+  }
+  touchSending = false;
 }
 
 async function start() {
