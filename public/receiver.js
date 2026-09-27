@@ -2,6 +2,8 @@ const v = document.getElementById('v');
 const statusEl = document.getElementById('status');
 const fsBtn = document.getElementById('fs');
 const touchBtn = document.getElementById('touch');
+const soundBtn = document.getElementById('sound');
+const tapSoundBtn = document.getElementById('tapsound');
 const reconnectBtn = document.getElementById('reconnect');
 const statsEl = document.getElementById('stats');
 const pinbox = document.getElementById('pinbox');
@@ -15,6 +17,9 @@ let touchActive = false;
 let lastMoveSent = 0;
 const MOVE_THROTTLE_MS = 16; // ~60Hz
 let cfg = { pinRequired: false, touch: false };
+// Browsers (incl. the Tesla one) only allow unmuted playback after a user
+// gesture, so the video starts muted and we unmute on the first tap.
+let soundWanted = localStorage.getItem('tm.sound') !== 'off';
 
 function getPin() {
   const url = new URLSearchParams(location.search).get('pin');
@@ -59,13 +64,20 @@ function connect() {
       pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
       pc.ondatachannel = (ev) => { dc = ev.channel; setupDc(); };
       pc.ontrack = (ev) => {
-        v.srcObject = ev.streams[0];
+        const stream = ev.streams[0] || new MediaStream([ev.track]);
+        if (v.srcObject !== stream) v.srcObject = stream;
         document.body.classList.add('connected');
         setStatus('streaming');
-        try { ev.receiver.playoutDelayHint = 0; } catch {}
-        try { ev.receiver.jitterBufferTarget = 0; } catch {}
-        startStatsLoop();
-        tryFullscreen();
+        if (ev.track.kind === 'video') {
+          // Minimal buffering for the picture. Audio keeps the adaptive jitter
+          // buffer — forcing it to 0 over Wi-Fi causes crackles and dropouts.
+          try { ev.receiver.playoutDelayHint = 0; } catch {}
+          try { ev.receiver.jitterBufferTarget = 0; } catch {}
+          startStatsLoop();
+          tryFullscreen();
+        } else {
+          applySound();
+        }
       };
       pc.onicecandidate = (ev) => { if (ev.candidate) ws.send(JSON.stringify({ type: 'ice', candidate: ev.candidate })); };
       pc.onconnectionstatechange = () => {
@@ -76,6 +88,7 @@ function connect() {
       };
       await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
       const answer = await pc.createAnswer();
+      answer.sdp = wantStereo(answer.sdp);
       await pc.setLocalDescription(answer);
       ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
     } else if (msg.type === 'ice' && msg.candidate) {
@@ -86,6 +99,45 @@ function connect() {
     }
   };
 }
+
+// Ask the sender for stereo Opus (Chrome only sends stereo if the answer says so).
+function wantStereo(sdp) {
+  const m = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
+  if (!m) return sdp;
+  const re = new RegExp(`^(a=fmtp:${m[1]} .*)$`, 'm');
+  return sdp.replace(re, (line) => /stereo=1/.test(line) ? line : line + ';stereo=1;sprop-stereo=1');
+}
+
+// ───────── Sound ─────────
+function hasAudio() { return !!v.srcObject?.getAudioTracks?.().length; }
+function renderSound() {
+  const on = !v.muted && hasAudio();
+  soundBtn.textContent = 'Sound: ' + (hasAudio() ? (on ? 'on' : 'off') : 'none');
+  soundBtn.classList.toggle('on', on);
+  document.body.classList.toggle('needs-sound', soundWanted && hasAudio() && v.muted);
+}
+function applySound() {
+  if (!soundWanted || !hasAudio()) { v.muted = true; return renderSound(); }
+  v.muted = false;
+  v.play().catch(() => { v.muted = true; v.play().catch(() => {}); }).finally(renderSound);
+  renderSound();
+}
+function unlockSound() {
+  if (!soundWanted || !hasAudio() || !v.muted) return;
+  v.muted = false;
+  v.play().catch(() => { v.muted = true; }).finally(renderSound);
+}
+soundBtn.onclick = (e) => {
+  e.stopPropagation();
+  soundWanted = v.muted || !hasAudio();
+  localStorage.setItem('tm.sound', soundWanted ? 'on' : 'off');
+  if (soundWanted) unlockSound(); else v.muted = true;
+  renderSound();
+};
+tapSoundBtn.onclick = (e) => { e.stopPropagation(); unlockSound(); };
+// Any tap (including touch-control taps on the video) counts as the gesture.
+document.addEventListener('pointerdown', (ev) => { if (ev.target !== soundBtn) unlockSound(); }, { capture: true, passive: true });
+v.addEventListener('volumechange', renderSound);
 
 function setupDc() {
   dc.onopen = () => setStatus('touch channel open');
@@ -155,13 +207,14 @@ touchBtn.onclick = (e) => {
 // ───────── Stats ─────────
 function startStatsLoop() {
   clearInterval(statsTimer);
-  let lastBytes = 0, lastTs = 0, lastFrames = 0;
+  let lastBytes = 0, lastTs = 0, lastFrames = 0, lastABytes = 0, lastSamples = 0, lastConcealed = 0;
   statsTimer = setInterval(async () => {
     if (!pc) return;
     const stats = await pc.getStats();
-    let inbound, candPair;
+    let inbound, audioIn, candPair;
     stats.forEach(s => {
       if (s.type === 'inbound-rtp' && s.kind === 'video') inbound = s;
+      if (s.type === 'inbound-rtp' && s.kind === 'audio') audioIn = s;
       if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') candPair = s;
     });
     if (!inbound) return;
@@ -172,7 +225,16 @@ function startStatsLoop() {
     lastBytes = inbound.bytesReceived; lastTs = now; lastFrames = inbound.framesDecoded;
     const rtt = candPair?.currentRoundTripTime != null ? Math.round(candPair.currentRoundTripTime * 1000) : '?';
     const jitter = inbound.jitter != null ? Math.round(inbound.jitter * 1000) : '?';
-    statsEl.textContent = `${fps}fps  ${kbps}kbps  rtt:${rtt}ms  jit:${jitter}ms  drop:${inbound.framesDropped||0}`;
+    let audio = '';
+    if (audioIn) {
+      const akbps = dt ? Math.round(((audioIn.bytesReceived - lastABytes) * 8) / dt / 1000) : 0;
+      const samples = (audioIn.totalSamplesReceived || 0) - lastSamples;
+      const concealed = (audioIn.concealedSamples || 0) - lastConcealed;
+      const loss = samples > 0 ? Math.round((concealed / samples) * 100) : 0;
+      audio = `  🔊${akbps}kbps${loss ? ` gaps:${loss}%` : ''}${v.muted ? ' (muted)' : ''}`;
+      lastABytes = audioIn.bytesReceived; lastSamples = audioIn.totalSamplesReceived || 0; lastConcealed = audioIn.concealedSamples || 0;
+    }
+    statsEl.textContent = `${fps}fps  ${kbps}kbps  rtt:${rtt}ms  jit:${jitter}ms  drop:${inbound.framesDropped||0}${audio}`;
   }, 1000);
 }
 

@@ -32,6 +32,20 @@
   </div>
 </fieldset>
 
+<fieldset>
+  <legend>Sound</legend>
+  <div class="row">
+    <label>Source <select id="audioSrc"></select></label>
+    <label>kbps <input id="audioKbps" type="number" min="32" max="510" style="width:5rem"></label>
+    <button id="refreshAudio" title="Re-scan audio devices">↻</button>
+  </div>
+  <div class="muted" style="margin-top:.4rem">
+    <b>System audio</b> needs Chrome on macOS 14.2+ — tick “Share system audio” in the picker.
+    Older macOS: install a loopback device (e.g. <code>brew install blackhole-2ch</code>), route output to it
+    via a Multi-Output Device in Audio MIDI Setup, and pick it here.
+  </div>
+</fieldset>
+
 <div class="row" style="margin-top:1rem">
   <button id="start">Start sharing</button>
   <button id="stop" disabled>Stop</button>

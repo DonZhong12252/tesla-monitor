@@ -40,6 +40,7 @@ That single `npm start` does everything: launches the server, opens a Cloudflare
 - **WebRTC H.264 Baseline** — no B-frames, ~150ms end-to-end through the tunnel
 - **Touch control** — tap, drag, click on Tesla → real mouse events on Mac (via `cliclick`)
 - **One-command launch** — `npm start` spawns server + tunnel + opens browser
+- **Sound** — Mac system audio streamed as stereo Opus (160 kbps default, FEC on, no DTX); Tesla unmutes on first tap
 - **Profiles** — built-in presets for MCU1/2, MCU3, highway; save your own
 - **PIN auth** — optional, set in `config.json`
 - **Auto-reconnect** + live stats overlay (fps / kbps / rtt / jitter / drops)
@@ -59,4 +60,5 @@ That single `npm start` does everything: launches the server, opens a Cloudflare
 - **Park only.** Tesla disables the browser in Drive on most firmware.
 - **Tunnel URL changes each session** (free tier). Permanent URL needs a free Cloudflare account + named tunnel.
 - **Touch is mouse, not multitouch.** Tap = click, drag = mouse drag. No pinch/scroll wheel yet.
+- **Sound** on the sender: pick *System audio* and tick “Share system audio” in Chrome's picker (macOS 14.2+). On older macOS, install a loopback (`brew install blackhole-2ch`), send output to it via a Multi-Output Device in Audio MIDI Setup, and pick it as the Sound source. Browsers block autoplaying sound, so tap the Tesla screen once (or the 🔊 button) to hear it.
 - **Latency** is ~80-140ms on clean LAN, ~150-250ms through the tunnel.
